@@ -11,7 +11,7 @@ export default function OsaDrop() {
   const [roomId, setRoomId] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [status, setStatus] = useState<"idle" | "waiting" | "connected">("idle");
-  const [isInitiator, setIsInitiator] = useState(false);
+  const isInitiatorRef = useRef(false);
   
   // File Transfer States
   const [file, setFile] = useState<File | null>(null);
@@ -33,13 +33,13 @@ export default function OsaDrop() {
     socketRef.current.on("room-created", (id) => {
       setRoomId(id);
       setStatus("waiting");
-      setIsInitiator(true);
+      isInitiatorRef.current = true;
     });
 
     socketRef.current.on("room-joined", (id) => {
       setRoomId(id);
       setStatus("waiting");
-      setIsInitiator(false);
+      isInitiatorRef.current = false;
     });
 
     socketRef.current.on("room-full", () => {
@@ -49,7 +49,7 @@ export default function OsaDrop() {
 
     socketRef.current.on("peer-connected", async () => {
       setStatus("connected");
-      if (isInitiator) {
+      if (isInitiatorRef.current) {
         initiateWebRTC();
       }
     });
@@ -83,7 +83,7 @@ export default function OsaDrop() {
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [isInitiator]);
+  }, []);
 
   const initPeerConnection = () => {
     const pc = new RTCPeerConnection({
