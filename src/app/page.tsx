@@ -19,6 +19,7 @@ export default function OsaDrop() {
   const [progress, setProgress] = useState(0);
   const [transferStatus, setTransferStatus] = useState<"none" | "sending" | "receiving" | "done">("none");
   const [receivedFileMeta, setReceivedFileMeta] = useState<{name: string, size: number} | null>(null);
+  const receivedFileMetaRef = useRef<{name: string, size: number} | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
@@ -159,7 +160,9 @@ export default function OsaDrop() {
       if (typeof event.data === "string") {
         const meta = JSON.parse(event.data);
         if (meta.type === "file-meta") {
-          setReceivedFileMeta({ name: meta.name, size: meta.size });
+          const fileMeta = { name: meta.name, size: meta.size };
+          setReceivedFileMeta(fileMeta);
+          receivedFileMetaRef.current = fileMeta;
           setTransferStatus("receiving");
           receiveBufferRef.current = [];
           receivedSizeRef.current = 0;
@@ -169,12 +172,13 @@ export default function OsaDrop() {
         receiveBufferRef.current.push(event.data);
         receivedSizeRef.current += event.data.byteLength;
         
-        if (receivedFileMeta) {
-          setProgress(Math.round((receivedSizeRef.current / receivedFileMeta.size) * 100));
+        const meta = receivedFileMetaRef.current;
+        if (meta) {
+          setProgress(Math.round((receivedSizeRef.current / meta.size) * 100));
           
-          if (receivedSizeRef.current === receivedFileMeta.size) {
+          if (receivedSizeRef.current >= meta.size) {
             setTransferStatus("done");
-            downloadFile(receiveBufferRef.current, receivedFileMeta.name);
+            downloadFile(receiveBufferRef.current, meta.name);
           }
         }
       }
@@ -204,32 +208,36 @@ export default function OsaDrop() {
     dc.send(JSON.stringify({ type: "file-meta", name: file.name, size: file.size }));
 
     let offset = 0;
-    const sendChunk = () => {
+    dc.bufferedAmountLowThreshold = 1024 * 1024; // 1 MB
+
+    const sendChunk = async () => {
       while (offset < file.size) {
         if (dc.bufferedAmount > dc.bufferedAmountLowThreshold) {
-          dc.onbufferedamountlow = () => {
-            dc.onbufferedamountlow = null;
-            sendChunk();
-          };
-          return;
+          await new Promise<void>((resolve) => {
+            dc.onbufferedamountlow = () => {
+              dc.onbufferedamountlow = null;
+              resolve();
+            };
+          });
         }
 
         const slice = file.slice(offset, offset + CHUNK_SIZE);
-        slice.arrayBuffer().then((buffer) => {
+        const buffer = await slice.arrayBuffer();
+        
+        try {
           dc.send(buffer);
-        });
+        } catch (e) {
+          console.error("Erreur d'envoi", e);
+          return;
+        }
 
         offset += CHUNK_SIZE;
         setProgress(Math.round((offset / file.size) * 100));
       }
 
-      if (offset >= file.size) {
-        setTransferStatus("done");
-      }
+      setTransferStatus("done");
     };
 
-    // Configure bufferedAmountLowThreshold (e.g. 1MB)
-    dc.bufferedAmountLowThreshold = 1024 * 1024;
     sendChunk();
   };
 
