@@ -334,7 +334,7 @@ export default function OsaDrop() {
               <span className="text-sm font-bold tracking-wide">Connexion P2P Directe Établie</span>
             </div>
 
-            {transferStatus === "none" && (
+            {transferStatus === "none" && isInitiatorRef.current && (
               <div className="space-y-6">
                 <label className="border-2 border-dashed border-white/20 rounded-2xl p-12 flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 hover:border-white/40 transition">
                   <FileUp className="w-12 h-12 text-white/50 mb-4" />
@@ -350,6 +350,14 @@ export default function OsaDrop() {
                 >
                   Envoyer le fichier
                 </button>
+              </div>
+            )}
+
+            {transferStatus === "none" && !isInitiatorRef.current && (
+              <div className="text-center space-y-6 py-8">
+                <Loader2 className="w-16 h-16 text-blue-500 animate-spin mx-auto" />
+                <h3 className="text-2xl font-bold">En attente du fichier...</h3>
+                <p className="text-white/50">L'expéditeur prépare l'envoi de son côté.</p>
               </div>
             )}
 
@@ -375,7 +383,7 @@ export default function OsaDrop() {
                 <h3 className="text-3xl font-black">Transfert terminé !</h3>
                 <p className="text-white/50">Le fichier a été transféré avec succès via WebRTC.</p>
                 <button onClick={() => {setFile(null); setTransferStatus("none");}} className="bg-white/10 hover:bg-white/20 text-white font-bold py-3 px-8 rounded-xl transition mt-4">
-                  Envoyer un autre fichier
+                  {isInitiatorRef.current ? "Envoyer un autre fichier" : "Recevoir un autre fichier"}
                 </button>
               </div>
             )}
