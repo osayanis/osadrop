@@ -26,6 +26,7 @@ export default function OsaDrop() {
   // Receive buffers
   const receiveBufferRef = useRef<ArrayBuffer[]>([]);
   const receivedSizeRef = useRef(0);
+  const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
 
   useEffect(() => {
     socketRef.current = io();
@@ -48,7 +49,6 @@ export default function OsaDrop() {
     });
 
     socketRef.current.on("peer-connected", async () => {
-      setStatus("connected");
       if (isInitiatorRef.current) {
         initiateWebRTC();
       }
@@ -63,6 +63,15 @@ export default function OsaDrop() {
     socketRef.current.on("offer", async (payload) => {
       if (!peerRef.current) initPeerConnection();
       await peerRef.current?.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      
+      // Process queued candidates
+      while (iceCandidateQueue.current.length > 0) {
+        const candidate = iceCandidateQueue.current.shift();
+        if (candidate) {
+          await peerRef.current?.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
+        }
+      }
+
       const answer = await peerRef.current?.createAnswer();
       await peerRef.current?.setLocalDescription(answer);
       socketRef.current?.emit("answer", { target: payload.caller, sdp: peerRef.current?.localDescription });
@@ -70,13 +79,25 @@ export default function OsaDrop() {
 
     socketRef.current.on("answer", async (payload) => {
       await peerRef.current?.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      
+      // Process queued candidates
+      while (iceCandidateQueue.current.length > 0) {
+        const candidate = iceCandidateQueue.current.shift();
+        if (candidate) {
+          await peerRef.current?.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
+        }
+      }
     });
 
     socketRef.current.on("ice-candidate", async (payload) => {
-      try {
-        await peerRef.current?.addIceCandidate(new RTCIceCandidate(payload.candidate));
-      } catch (e) {
-        console.error("Error adding received ice candidate", e);
+      if (!peerRef.current || !peerRef.current.remoteDescription) {
+        iceCandidateQueue.current.push(payload.candidate);
+      } else {
+        try {
+          await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+        } catch (e) {
+          console.error("Error adding received ice candidate", e);
+        }
       }
     });
 
@@ -87,7 +108,7 @@ export default function OsaDrop() {
 
   const initPeerConnection = () => {
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+      iceServers: [{ urls: "stun:stun1.l.google.com:19302" }]
     });
 
     pc.onicecandidate = (event) => {
@@ -105,7 +126,6 @@ export default function OsaDrop() {
       receiveChannel.binaryType = "arraybuffer";
       setupDataChannelEvents(receiveChannel);
       dataChannelRef.current = receiveChannel;
-      setStatus("connected");
     };
 
     peerRef.current = pc;
