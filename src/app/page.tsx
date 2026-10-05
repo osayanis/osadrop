@@ -9,6 +9,7 @@ const CHUNK_SIZE = 64 * 1024; // 64 KB
 
 export default function OsaDrop() {
   const [roomId, setRoomId] = useState("");
+  const roomIdRef = useRef("");
   const [joinCode, setJoinCode] = useState("");
   const [status, setStatus] = useState<"idle" | "waiting" | "connected">("idle");
   const isInitiatorRef = useRef(false);
@@ -33,12 +34,14 @@ export default function OsaDrop() {
 
     socketRef.current.on("room-created", (id) => {
       setRoomId(id);
+      roomIdRef.current = id;
       setStatus("waiting");
       isInitiatorRef.current = true;
     });
 
     socketRef.current.on("room-joined", (id) => {
       setRoomId(id);
+      roomIdRef.current = id;
       setStatus("waiting");
       isInitiatorRef.current = false;
     });
@@ -115,7 +118,7 @@ export default function OsaDrop() {
       if (event.candidate) {
         // Broadcast candidate to peer in the room
         socketRef.current?.emit("ice-candidate", {
-          target: roomId,
+          target: roomIdRef.current,
           candidate: event.candidate
         });
       }
@@ -144,10 +147,11 @@ export default function OsaDrop() {
     // Create Offer
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    socketRef.current?.emit("offer", { target: roomId, sdp: pc.localDescription });
+    socketRef.current?.emit("offer", { target: roomIdRef.current, sdp: pc.localDescription });
   };
 
   const setupDataChannelEvents = (dc: RTCDataChannel) => {
+    if (dc.readyState === "open") setStatus("connected");
     dc.onopen = () => setStatus("connected");
     dc.onclose = () => setStatus("idle");
     
