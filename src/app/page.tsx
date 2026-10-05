@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { QrCode, X } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
+import { Scanner } from "@yudiel/react-qr-scanner";
 import { UploadCloud, CheckCircle2, FileUp, Loader2, ArrowRight, ShieldCheck, Key } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 
@@ -17,6 +20,7 @@ export default function OsaDrop() {
   // File Transfer States
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
+  const [showScanner, setShowScanner] = useState(false);
   const [transferStatus, setTransferStatus] = useState<"none" | "sending" | "receiving" | "done">("none");
   const [receivedFileMeta, setReceivedFileMeta] = useState<{name: string, size: number} | null>(null);
   const receivedFileMetaRef = useRef<{name: string, size: number} | null>(null);
@@ -212,11 +216,29 @@ export default function OsaDrop() {
 
     const sendChunk = async () => {
       while (offset < file.size) {
+        if (dc.readyState !== "open") {
+          console.error("Data channel closed prematurely");
+          return;
+        }
+        
         if (dc.bufferedAmount > dc.bufferedAmountLowThreshold) {
           await new Promise<void>((resolve) => {
+            let resolved = false;
+            const timeout = setTimeout(() => {
+              if (!resolved) {
+                resolved = true;
+                dc.onbufferedamountlow = null;
+                resolve();
+              }
+            }, 1000); // 1s fallback
+
             dc.onbufferedamountlow = () => {
-              dc.onbufferedamountlow = null;
-              resolve();
+              if (!resolved) {
+                resolved = true;
+                clearTimeout(timeout);
+                dc.onbufferedamountlow = null;
+                resolve();
+              }
             };
           });
         }
@@ -228,11 +250,22 @@ export default function OsaDrop() {
           dc.send(buffer);
         } catch (e) {
           console.error("Erreur d'envoi", e);
-          return;
+          // Wait and retry once
+          await new Promise(r => setTimeout(r, 500));
+          try {
+             dc.send(buffer);
+          } catch(e2) {
+             return;
+          }
         }
 
         offset += CHUNK_SIZE;
         setProgress(Math.round((offset / file.size) * 100));
+        
+        // Add tiny yield to unblock the main thread for very large files
+        if (offset % (CHUNK_SIZE * 100) === 0) {
+          await new Promise(r => setTimeout(r, 1));
+        }
       }
 
       setTransferStatus("done");
@@ -254,9 +287,40 @@ export default function OsaDrop() {
 
   return (
     <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-6 bg-[#050505]">
+      {showScanner && (
+        <div className="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-6">
+          <div className="w-full max-w-sm glass-card rounded-3xl overflow-hidden relative border border-white/20">
+            <div className="p-4 flex justify-between items-center border-b border-white/10 bg-white/5">
+              <h3 className="font-bold text-white">Scanner le code</h3>
+              <button onClick={() => setShowScanner(false)} className="text-white/50 hover:text-white bg-white/10 rounded-full p-2">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="aspect-square bg-black">
+              <Scanner 
+                onScan={(result: any) => {
+                  if (result && result.length > 0) {
+                    const val = result[0].rawValue;
+                    if (val.includes("?code=")) {
+                      const code = val.split("?code=")[1].substring(0, 6);
+                      setShowScanner(false);
+                      setJoinCode(code);
+                      setTimeout(() => {
+                        setStatus("waiting");
+                        socketRef.current?.emit("join-room", code);
+                      }, 500);
+                    }
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       
-      <div className="fixed top-0 left-0 w-[500px] h-[500px] bg-blue-500/20 blur-[120px] rounded-full pointer-events-none z-0" />
-      <div className="fixed bottom-0 right-0 w-[500px] h-[500px] bg-purple-600/15 blur-[150px] rounded-full pointer-events-none z-0" />
+      <div className="fixed top-[-250px] left-[-250px] w-[1000px] h-[1000px] bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.2)_0%,transparent_50%)] pointer-events-none z-0" />
+      <div className="fixed bottom-[-250px] right-[-250px] w-[1000px] h-[1000px] bg-[radial-gradient(circle_at_center,rgba(147,51,234,0.15)_0%,transparent_50%)] pointer-events-none z-0" />
 
       <div className="relative z-10 text-center mb-12">
         <h1 className="text-5xl font-black mb-4 tracking-tight">OsaDrop</h1>
@@ -300,6 +364,13 @@ export default function OsaDrop() {
                   <ArrowRight className="w-5 h-5" />
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowScanner(true)}
+                className="w-full mt-3 bg-white/5 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-white/10 transition border border-white/10"
+              >
+                <QrCode className="w-5 h-5" /> Scanner un QR Code
+              </button>
             </div>
           </motion.div>
         )}
@@ -318,6 +389,9 @@ export default function OsaDrop() {
             </div>
             <div className="inline-block glass-card px-8 py-4 rounded-2xl border-blue-500/30 border-2">
               <span className="text-6xl font-black tracking-widest text-blue-400">{roomId}</span>
+            </div>
+            <div className="flex justify-center bg-white p-4 rounded-xl mx-auto w-fit mt-6">
+              <QRCodeSVG value={`https://osadrop.osalabs.fr/?code=${roomId}`} size={150} />
             </div>
           </motion.div>
         )}
