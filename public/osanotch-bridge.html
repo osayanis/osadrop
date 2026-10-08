@@ -1,0 +1,111 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>OsaNotch Bridge</title></head>
+<body style="margin:0;background:#000">
+<!-- Pont invisible : réutilise le protocole WebRTC d'OsaDrop web pour le client natif OsaNotch.
+     Piloté par le natif via window.osaBridge.{send,receive}; renvoie les évènements via
+     window.webkit.messageHandlers.osa.postMessage(...). Interopérable avec osadrop.osalabs.fr. -->
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const CHUNK = 64 * 1024;
+const ICE = { iceServers: [{ urls: "stun:stun1.l.google.com:19302" }] };
+let socket, pc, dc, room, peerId, role;
+let incoming = { buf: [], received: 0, meta: null };
+
+function post(m) { try { window.webkit.messageHandlers.osa.postMessage(m); } catch (e) {} }
+
+function connect(code, r) {
+  role = r; room = code; incoming = { buf: [], received: 0, meta: null };
+  socket = io({ transports: ["websocket", "polling"] });
+  socket.on("connect", () => socket.emit("join-room", code));
+  socket.on("room-full", () => post({ type: "error", msg: "room pleine" }));
+  // L'envoyeur est le premier : il offre dès qu'un pair est là.
+  socket.on("room-created", () => post({ type: "status", phase: "waiting" }));
+  socket.on("room-joined", () => { post({ type: "status", phase: "connecting" }); if (role === "send") makeOffer(); });
+  socket.on("peer-connected", (id) => { peerId = id; post({ type: "status", phase: "connecting" }); if (role === "send") makeOffer(); });
+
+  socket.on("offer", async (p) => {
+    peerId = p.caller; ensurePC();
+    await pc.setRemoteDescription(p.sdp);
+    const ans = await pc.createAnswer(); await pc.setLocalDescription(ans);
+    socket.emit("answer", { target: peerId, sdp: ans });
+  });
+  socket.on("answer", async (p) => { await pc.setRemoteDescription(p.sdp); });
+  socket.on("ice-candidate", async (p) => { try { await pc.addIceCandidate(p.candidate); } catch (e) {} });
+}
+
+function ensurePC() {
+  if (pc) return;
+  pc = new RTCPeerConnection(ICE);
+  pc.onicecandidate = (e) => { if (e.candidate && peerId) socket.emit("ice-candidate", { target: peerId, candidate: e.candidate }); };
+  pc.ondatachannel = (e) => { dc = e.channel; setupDC(); };     // côté receveur
+  pc.onconnectionstatechange = () => { if (pc.connectionState === "failed") post({ type: "error", msg: "connexion perdue" }); };
+}
+
+async function makeOffer() {
+  if (!peerId && role === "send") { /* on attend l'id via peer-connected */ }
+  ensurePC();
+  if (role === "send" && !dc) { dc = pc.createDataChannel("osadrop"); setupDC(); }
+  const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
+  if (peerId) socket.emit("offer", { target: peerId, sdp: offer });
+}
+
+let pendingFile = null;
+function setupDC() {
+  dc.binaryType = "arraybuffer";
+  dc.onopen = () => { post({ type: "status", phase: "connected" }); if (role === "send" && pendingFile) startSend(); };
+  dc.onmessage = (e) => {
+    if (typeof e.data === "string") { incoming.meta = JSON.parse(e.data); incoming.received = 0; incoming.buf = []; }
+    else {
+      incoming.buf.push(e.data); incoming.received += e.data.byteLength;
+      if (incoming.meta) {
+        post({ type: "progress", p: incoming.received / incoming.meta.size });
+        if (incoming.received >= incoming.meta.size) finishReceive();
+      }
+    }
+  };
+}
+
+function finishReceive() {
+  const blob = new Blob(incoming.buf);
+  const reader = new FileReader();
+  reader.onload = () => {
+    const b64 = reader.result.split(",")[1];
+    post({ type: "received", name: incoming.meta.name, b64 });
+  };
+  reader.readAsDataURL(blob);
+}
+
+async function startSend() {
+  const f = pendingFile; pendingFile = null;
+  dc.send(JSON.stringify({ type: "file-meta", name: f.name, size: f.bytes.byteLength }));
+  dc.bufferedAmountLowThreshold = 1024 * 1024;
+  let offset = 0;
+  const data = f.bytes;
+  while (offset < data.byteLength) {
+    if (dc.bufferedAmount > dc.bufferedAmountLowThreshold) {
+      await new Promise(r => { dc.onbufferedamountlow = () => { dc.onbufferedamountlow = null; r(); }; });
+    }
+    const end = Math.min(offset + CHUNK, data.byteLength);
+    dc.send(data.slice(offset, end));
+    offset = end;
+    post({ type: "progress", p: offset / data.byteLength });
+  }
+  post({ type: "status", phase: "sent" });
+}
+
+// ── API appelée par le natif ──
+window.osaBridge = {
+  send: function (b64, name, code) {
+    const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    pendingFile = { name, bytes: bytes.buffer };
+    connect(code, "send");
+    if (dc && dc.readyState === "open") startSend();
+  },
+  receive: function (code) { connect(code, "receive"); }
+};
+post({ type: "ready" });
+</script>
+</body>
+</html>
