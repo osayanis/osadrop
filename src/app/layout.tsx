@@ -1,21 +1,20 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { Bricolage_Grotesque, Inter } from "next/font/google";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "OsaDrop | Transfert P2P",
-  description: "Transfert de fichiers ultra-rapide en peer-to-peer sans serveur intermédiaire.",
-};
+const display = Bricolage_Grotesque({ subsets: ["latin"], weight: ["600", "700", "800"], variable: "--font-osa-display" });
+const sans = Inter({ subsets: ["latin"], variable: "--font-osa-sans" });
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export const metadata: Metadata = {
+  title: "OsaDrop · Envoie un fichier, directement",
+  description: "Transfert de fichiers pair-à-pair, sans compte et sans serveur. Par OsaLabs.",
+};
+export const viewport: Viewport = { themeColor: "#0a0a0c" };
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="fr">
-      <body className="antialiased bg-[#050505] text-white">
-        {children}
-      </body>
+    <html lang="fr" className={`${display.variable} ${sans.variable}`}>
+      <body className="antialiased bg-[#0a0a0c] text-white">{children}</body>
     </html>
   );
 }
