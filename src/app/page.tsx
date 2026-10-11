@@ -422,7 +422,7 @@ export default function OsaDrop() {
                       <button onClick={() => joinRoom()} disabled={joinCode.length < 4} className="h-10 px-5 rounded-full bg-[#fdfcf7] text-black text-sm font-bold disabled:opacity-30 transition">Recevoir</button>
                       <button onClick={() => setShowScanner(true)} className="h-10 px-4 rounded-full bg-white/[0.07] hover:bg-white/[0.12] text-sm font-semibold flex items-center gap-2 transition"><QrCode className="w-4 h-4" /> Scanner</button>
                     </div>
-                    <p className="text-[11px] text-white/35">Code à 6 caractères (4 depuis OsaNotch)</p>
+                    <p className="text-[11px] text-white/35">Le code à 6 caractères de l’expéditeur</p>
                   </div>
                 </OsaBox>
               </div>
