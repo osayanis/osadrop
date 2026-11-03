@@ -8,7 +8,19 @@
 <script src="/socket.io/socket.io.js"></script>
 <script>
 const CHUNK = 64 * 1024;
-const ICE = { iceServers: [{ urls: "stun:stun1.l.google.com:19302" }] };
+// Relais TURN du VPS OsaLabs quand les deux appareils ne se joignent pas directement
+const ICE = { iceServers: [
+  { urls: "stun:stun1.l.google.com:19302" },
+  {
+    urls: [
+      "turn:osacast.osalabs.fr:3478?transport=udp",
+      "turn:osacast.osalabs.fr:3478?transport=tcp",
+      "turns:osacast.osalabs.fr:5349?transport=tcp",
+    ],
+    username: "osalabs",
+    credential: "SVGT1yixfJPtXTlqNW2PL0qC",
+  },
+] };
 let socket, pc, dc, room, peerId, role;
 let incoming = { buf: [], received: 0, meta: null };
 

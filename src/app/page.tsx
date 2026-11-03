@@ -10,6 +10,23 @@ import Mascot, { type Mood } from "@/components/osa/Mascot";
 import { CodeSlots, Island, OsaBox, Pill, Shell, fmtBytes, useNotices } from "@/components/osa/Kit";
 
 const CHUNK_SIZE = 64 * 1024; // 64 Ko
+// STUN pour trouver son adresse publique ; relais TURN du VPS OsaLabs (coturn) quand les deux
+// appareils ne peuvent pas se joindre directement (VM cloud, 4G, réseau d'entreprise).
+// Le relais ne voit que du chiffré (DTLS).
+const ICE_SERVERS: RTCConfiguration = {
+  iceServers: [
+    { urls: "stun:stun1.l.google.com:19302" },
+    {
+      urls: [
+        "turn:osacast.osalabs.fr:3478?transport=udp",
+        "turn:osacast.osalabs.fr:3478?transport=tcp",
+        "turns:osacast.osalabs.fr:5349?transport=tcp",
+      ],
+      username: "osalabs",
+      credential: "SVGT1yixfJPtXTlqNW2PL0qC",
+    },
+  ],
+};
 const ACCENT = "#7cc4ff";
 const ACCENT2 = "#a78bfa";
 
@@ -130,7 +147,7 @@ export default function OsaDrop() {
   };
 
   const initPeerConnection = () => {
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun1.l.google.com:19302" }] });
+    const pc = new RTCPeerConnection(ICE_SERVERS);
     pc.onicecandidate = (event) => {
       if (event.candidate) socketRef.current?.emit("ice-candidate", { target: roomIdRef.current, candidate: event.candidate });
     };
