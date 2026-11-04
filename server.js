@@ -59,6 +59,25 @@ app.prepare().then(() => {
       });
     });
 
+    // 3. Amis OsaNotch : petits messages relayés d'un code à 6 chiffres à l'autre
+    // (demande d'ami, acceptation, invitation OsaCast / OsaParty). Pas de WebRTC : le serveur
+    // passe le message, et l'accusé dit à l'envoyeur si l'ami était connecté.
+    const isCode = (c) => typeof c === "string" && /^\d{6}$/.test(c);
+    socket.on("friend-listen", (code) => {
+      if (!isCode(code)) return;
+      socket.rooms.forEach((r) => { if (r.startsWith("friend_")) socket.leave(r); });
+      socket.join("friend_" + code);
+    });
+    socket.on("friend-send", (p, ack) => {
+      const reply = typeof ack === "function" ? ack : () => {};
+      if (!p || !isCode(p.to) || typeof p.msg !== "object" || p.msg === null) return reply(false);
+      if (JSON.stringify(p.msg).length > 2000) return reply(false);
+      const room = io.sockets.adapter.rooms.get("friend_" + p.to);
+      if (!room || room.size === 0) return reply(false);
+      socket.to("friend_" + p.to).emit("friend-msg", p.msg);
+      reply(true);
+    });
+
     socket.on("disconnect", () => {
       console.log("Client disconnected:", socket.id);
       // Since rooms auto-leave on disconnect, we can broadcast peer-disconnected
